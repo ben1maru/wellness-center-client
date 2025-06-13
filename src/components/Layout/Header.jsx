@@ -13,16 +13,19 @@ import {
   ListItemIcon,
   Avatar,
   Container,
-  Tooltip, // Додано Tooltip
-  Divider // Додано Divider
+  Tooltip,
+  Divider
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountCircle from '@mui/icons-material/AccountCircle';
-import LogoutIcon from '@mui/icons-material/Logout'; // Змінено з Logout
+import LogoutIcon from '@mui/icons-material/Logout';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import SettingsIcon from '@mui/icons-material/Settings'; // Приклад для налаштувань профілю
+import SettingsIcon from '@mui/icons-material/Settings';
 
-import { AuthContext } from '../../contexts/AuthContext.jsx'; // Перевірте розширення
+import { AuthContext } from '../../contexts/AuthContext.jsx';
+
+// 🖼️ Імпортуємо логотип
+import logo from '../../assets/logo.png';
 
 const navItemsPublic = [
   { label: 'Головна', path: '/' },
@@ -62,7 +65,7 @@ const Header = () => {
   const getUserProfilePath = () => {
     if (!user) return '/';
     switch (user.role) {
-      case 'admin': return '/admin/profile'; // Якщо є сторінка профілю адміна
+      case 'admin': return '/admin/profile';
       case 'specialist': return '/specialist/profile';
       case 'client': return '/client/profile';
       default: return '/';
@@ -70,32 +73,25 @@ const Header = () => {
   };
 
   return (
-    <AppBar 
-        position="sticky" 
-        // sx={{ bgcolor: 'background.paper', color: 'text.primary', boxShadow: (theme) => theme.shadows[1] }}
-        // Або якщо хочете стандартний колір AppBar:
-        color="primary" 
-    >
+    <AppBar position="sticky" color="primary">
       <Container maxWidth="lg">
         <Toolbar disableGutters>
-          <Typography
-            variant="h6"
-            noWrap
+
+          {/* 🖼️ Логотип (десктоп) */}
+          <Box
             component={RouterLink}
             to="/"
             sx={{
-              mr: 2,
               display: { xs: 'none', md: 'flex' },
-              fontFamily: 'monospace',
-              fontWeight: 700,
-              letterSpacing: '.1rem',
-              color: 'inherit', // Буде білим, якщо AppBar primary
+              alignItems: 'center',
               textDecoration: 'none',
+              mr: 2,
             }}
           >
-            ЛОГОЦЕНТР {/* Замініть на ваш логотип */}
-          </Typography>
+            <img src={logo} alt="Логотип" style={{ height: 40 }} />
+          </Box>
 
+          {/* Меню (мобільне) */}
           <Box sx={{ flexGrow: 1, display: { xs: 'flex', md: 'none' } }}>
             <IconButton
               size="large"
@@ -124,27 +120,22 @@ const Header = () => {
               ))}
             </Menu>
           </Box>
-          
-           <Typography
-            variant="h5"
-            noWrap
+
+          {/* 🖼️ Логотип (мобільне) */}
+          <Box
             component={RouterLink}
             to="/"
             sx={{
-              mr: 2,
               display: { xs: 'flex', md: 'none' },
               flexGrow: 1,
-              fontFamily: 'monospace',
-              fontWeight: 700,
-              letterSpacing: '.1rem',
-              color: 'inherit',
-              textDecoration: 'none',
               justifyContent: 'center',
+              textDecoration: 'none',
             }}
           >
-            ЛОГО {/* Мобільний логотип */}
-          </Typography>
+            <img src={logo} alt="Логотип" style={{ height: 35 }} />
+          </Box>
 
+          {/* Навігаційні кнопки (десктоп) */}
           <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' }, justifyContent: 'center' }}>
             {navItemsPublic.map((item) => (
               <Button
@@ -152,20 +143,21 @@ const Header = () => {
                 component={RouterLink}
                 to={item.path}
                 onClick={handleCloseNavMenu}
-                sx={{ my: 2, color: 'inherit', display: 'block', mx: 1 }} // color: 'inherit' для тексту кнопки
+                sx={{ my: 2, color: 'inherit', display: 'block', mx: 1 }}
               >
                 {item.label}
               </Button>
             ))}
           </Box>
 
+          {/* Кнопка або аватар користувача */}
           <Box sx={{ flexGrow: 0 }}>
             {isAuthenticated && user ? (
               <>
                 <Tooltip title="Меню користувача">
                   <IconButton onClick={handleOpenUserMenu} sx={{ p: 0 }}>
-                    <Avatar alt={user.first_name || user.email} src={user.photo_url /* якщо є */}>
-                        {!user.photo_url && user.first_name ? user.first_name.charAt(0).toUpperCase() : <AccountCircle />}
+                    <Avatar alt={user.first_name || user.email} src={user.photo_url}>
+                      {!user.photo_url && user.first_name ? user.first_name.charAt(0).toUpperCase() : <AccountCircle />}
                     </Avatar>
                   </IconButton>
                 </Tooltip>
@@ -200,6 +192,7 @@ const Header = () => {
               </Button>
             )}
           </Box>
+
         </Toolbar>
       </Container>
     </AppBar>

@@ -3,17 +3,17 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useSearchParams, useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
   Box, Container, Typography, Paper, Stepper, Step, StepLabel, Button, CircularProgress,
-  TextField, Grid, Link as MuiLink, Divider
+  Grid, Link as MuiLink, Divider, TextField
 } from '@mui/material';
 import PageTitle from '../../components/Common/PageTitle.jsx';
 import AppointmentForm from '../../components/Appointments/AppointmentForm.jsx';
 import { AuthContext } from '../../contexts/AuthContext.jsx';
 import { NotificationContext } from '../../contexts/NotificationContext.jsx';
-import { getServiceById, getSpecialistById, createAppointment } from '../../api/dataApi.js';
-import { format, formatISO } from 'date-fns';
+// getServiceById, getSpecialistById - для відображення назв на кроці підтвердження
+import { createAppointment, getServiceById, getSpecialistById } from '../../api/dataApi.js';
+import { format, parseISO, isValid as isValidDate, formatISO } from 'date-fns';
 import { uk } from 'date-fns/locale';
 
-// Іконки для кроків
 import EventSeatIcon from '@mui/icons-material/EventSeat';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -22,25 +22,8 @@ const steps = ['Вибір послуги та часу', 'Ваші дані', '
 
 const StepIconComponent = (props) => {
   const { active, completed, icon } = props;
-  const icons = {
-    1: <EventSeatIcon />,
-    2: <PersonOutlineIcon />,
-    3: <CheckCircleOutlineIcon />,
-  };
-
-  return (
-    <Box
-      sx={{
-        color: active ? 'primary.main' : completed ? 'success.main' : 'action.disabled',
-        display: 'flex',
-        height: 24,
-        alignItems: 'center',
-        ...(active && { fontWeight: 'bold' }),
-      }}
-    >
-      {icons[String(icon)]}
-    </Box>
-  );
+  const icons = { 1: <EventSeatIcon />, 2: <PersonOutlineIcon />, 3: <CheckCircleOutlineIcon /> };
+  return ( <Box sx={{ color: active ? 'primary.main' : completed ? 'success.main' : 'action.disabled', display: 'flex', height: 24, alignItems: 'center', ...(active && { fontWeight: 'bold' })}}> {icons[String(icon)]} </Box> );
 };
 
 const BookingPage = () => {
@@ -50,94 +33,139 @@ const BookingPage = () => {
   const { user, isAuthenticated } = useContext(AuthContext);
   const { showNotification } = useContext(NotificationContext);
 
-  const initialServiceId = searchParams.get('service');
-  const initialSpecialistId = searchParams.get('specialist');
+  const initialServiceIdFromUrl = searchParams.get('service');
+  const initialSpecialistIdFromUrl = searchParams.get('specialist');
 
   const [activeStep, setActiveStep] = useState(0);
   const [bookingDetails, setBookingDetails] = useState({
-    serviceId: initialServiceId || '',
-    specialistId: initialSpecialistId || '',
-    appointmentDateTime: null,
-    clientNotes: '',
-    clientFirstName: isAuthenticated ? user?.first_name : '',
-    clientLastName: isAuthenticated ? user?.last_name : '',
-    clientEmail: isAuthenticated ? user?.email : '',
-    clientPhone: isAuthenticated ? user?.phone_number : '',
+    service_id: initialServiceIdFromUrl || '',
+    specialist_id: initialSpecialistIdFromUrl || '',
+    appointment_datetime: null,
+    client_notes: '',
+    // Дані клієнта, заповнюються з context або на кроці 2
+    clientData: {
+        first_name: isAuthenticated && user ? user.first_name || '' : '',
+        last_name: isAuthenticated && user ? user.last_name || '' : '',
+        email: isAuthenticated && user ? user.email || '' : '',
+        phone_number: isAuthenticated && user ? user.phone_number || '' : '',
+    }
   });
 
   const [serviceDetailsCache, setServiceDetailsCache] = useState(null);
   const [specialistDetailsCache, setSpecialistDetailsCache] = useState(null);
   const [isSubmittingFinal, setIsSubmittingFinal] = useState(false);
+  const [loadingStepDetails, setLoadingStepDetails] = useState(false);
 
-  // Завантаження деталей послуги та спеціаліста для підтвердження
+
   useEffect(() => {
-    const fetchDetailsForConfirmation = async () => {
-      if (bookingDetails.serviceId && !serviceDetailsCache) {
+    const fetchDetailsForStep2 = async () => {
+      if (activeStep === 2) { // Тільки для кроку підтвердження
+        setLoadingStepDetails(true);
         try {
-          const service = await getServiceById(bookingDetails.serviceId);
-          setServiceDetailsCache(service);
+          if (bookingDetails.service_id && (!serviceDetailsCache || String(serviceDetailsCache.id) !== String(bookingDetails.service_id))) {
+            const service = await getServiceById(bookingDetails.service_id);
+            setServiceDetailsCache(service);
+          }
+          if (bookingDetails.specialist_id && (!specialistDetailsCache || String(specialistDetailsCache.id) !== String(bookingDetails.specialist_id))) {
+            const specialist = await getSpecialistById(bookingDetails.specialist_id);
+            setSpecialistDetailsCache(specialist);
+          }
         } catch (e) {
-          console.error("Error fetching service for confirmation", e);
-        }
-      }
-      if (bookingDetails.specialistId && !specialistDetailsCache) {
-        try {
-          const specialist = await getSpecialistById(bookingDetails.specialistId);
-          setSpecialistDetailsCache(specialist);
-        } catch (e) {
-          console.error("Error fetching specialist for confirmation", e);
+          console.error("Error fetching details for confirmation step:", e);
+          showNotification("Помилка завантаження деталей для підтвердження.", "error");
+        } finally {
+          setLoadingStepDetails(false);
         }
       }
     };
+    fetchDetailsForStep2();
+  }, [activeStep, bookingDetails.service_id, bookingDetails.specialist_id]); // Залежності
 
-    if (activeStep === 2) {
-      fetchDetailsForConfirmation();
+  // Коли користувач логіниться/виходить, оновлюємо дані клієнта у формі
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      setBookingDetails(prev => ({
+        ...prev,
+        clientData: {
+          first_name: user.first_name || '',
+          last_name: user.last_name || '',
+          email: user.email || '',
+          phone_number: user.phone_number || '',
+        }
+      }));
+    } else {
+        // Можна скинути, якщо потрібно, щоб незалогінений користувач вводив заново
+        // setBookingDetails(prev => ({ ...prev, clientData: { first_name: '', ...} }));
     }
-  }, [activeStep, bookingDetails.serviceId, bookingDetails.specialistId, serviceDetailsCache, specialistDetailsCache]);
+  }, [isAuthenticated, user]);
 
-  const handleStep1Success = (formDataFromStep1) => {
+
+  const handleStep0Success = (formDataFromStep0) => {
+    console.log("BookingPage: Data from Step 0 (AppointmentForm):", formDataFromStep0);
     setBookingDetails(prev => ({
       ...prev,
-      serviceId: formDataFromStep1.service_id,
-      specialistId: formDataFromStep1.specialist_id,
-      appointmentDateTime: formDataFromStep1.appointment_datetime,
-      clientNotes: formDataFromStep1.client_notes,
+      service_id: String(formDataFromStep0.service_id),
+      specialist_id: formDataFromStep0.specialist_id ? String(formDataFromStep0.specialist_id) : '',
+      appointment_datetime: formDataFromStep0.appointment_datetime, // Це об'єкт Date
+      client_notes: formDataFromStep0.client_notes,
     }));
     setActiveStep(1);
   };
 
-  const handleStep2Submit = (event) => {
+  const handleClientDataChange = (e) => {
+    setBookingDetails(prev => ({
+        ...prev,
+        clientData: {
+            ...prev.clientData,
+            [e.target.name]: e.target.value
+        }
+    }));
+  };
+
+  const handleStep1Submit = (event) => {
     event.preventDefault();
-    if (!isAuthenticated && (!bookingDetails.clientFirstName?.trim() || !bookingDetails.clientEmail?.trim())) {
-      showNotification("Будь ласка, вкажіть ваше ім'я та email.", "error");
-      return;
+    const { clientFirstName, clientEmail } = bookingDetails.clientData; // Використовуємо clientFirstName замість clientData.first_name
+    if (!isAuthenticated && (!clientFirstName?.trim() || !clientEmail?.trim())) { // clientData.first_name -> clientFirstName
+        showNotification("Будь ласка, вкажіть ваше ім'я та email.", "error");
+        return;
+    }
+     if (!isAuthenticated && clientEmail?.trim() && !/\S+@\S+\.\S+/.test(clientEmail)) { // clientData.email -> clientEmail
+        showNotification("Некоректний формат email.", "error");
+        return;
     }
     setActiveStep(2);
   };
 
   const handleFinalSubmit = async () => {
+    console.log("BookingPage: handleFinalSubmit called. Details:", bookingDetails);
+    if (!bookingDetails.service_id || !bookingDetails.appointment_datetime) {
+        showNotification("Не всі необхідні дані для запису заповнені.", "error");
+        return;
+    }
     setIsSubmittingFinal(true);
     try {
-      const dataToSend = {
-        service_id: Number(bookingDetails.serviceId),
-        specialist_id: bookingDetails.specialistId ? Number(bookingDetails.specialistId) : null,
-        appointment_datetime: formatISO(bookingDetails.appointmentDateTime),
-        client_notes: bookingDetails.clientNotes,
-        client_first_name: bookingDetails.clientFirstName,
-        client_last_name: bookingDetails.clientLastName,
-        client_email: bookingDetails.clientEmail,
-        client_phone: bookingDetails.clientPhone,
-      };
-      const response = await createAppointment(dataToSend);
-      showNotification(response.message || 'Запис успішно створено!', 'success');
-      navigate('/client/my-bookings', {
-        state: { notification: { message: response.message || 'Запис успішно створено!', severity: 'success' } }
-      });
-      setActiveStep((prev) => prev + 1); // Перехід на фінальний екран
+        const dataToSend = {
+            service_id: Number(bookingDetails.service_id),
+            specialist_id: bookingDetails.specialist_id ? Number(bookingDetails.specialist_id) : null,
+            appointment_datetime: formatISO(bookingDetails.appointment_datetime),
+            client_notes: bookingDetails.client_notes,
+        };
+        // Якщо користувач не залогінений, і API очікує ці дані, їх треба додати.
+        // Але зазвичай, якщо користувач не залогінений, йому пропонують увійти/зареєструватися
+        // перед тим, як дозволити створити запис. Або createAppointment не вимагає user_id.
+        // Наш createAppointment на бекенді бере user_id з req.user.id.
+        // Тому, якщо користувач не залогінений, він НЕ ПОВИНЕН дійти до цього кроку без логіну.
+        // Якщо ж це можливо (запис гостя), то API createAppointment має це обробляти.
+        console.log("BookingPage: Data being sent to createAppointment:", dataToSend);
+
+        const response = await createAppointment(dataToSend);
+        showNotification(response.message || 'Запис успішно створено!', 'success');
+        setActiveStep(steps.length);
     } catch (error) {
-      showNotification(error.message || 'Не вдалося створити запис.', 'error');
+        console.error("BookingPage: Error on final submit:", error, error.message);
+        showNotification(error.message || 'Не вдалося створити запис. Спробуйте ще раз.', 'error');
     } finally {
-      setIsSubmittingFinal(false);
+        setIsSubmittingFinal(false);
     }
   };
 
@@ -148,105 +176,111 @@ const BookingPage = () => {
       case 0:
         return (
           <AppointmentForm
-            key="booking-step-1"
-            initialServiceId={bookingDetails.serviceId}
-            initialSpecialistId={bookingDetails.specialistId}
-            onSuccess={handleStep1Success}
+            key={`booking-step0-${initialServiceIdFromUrl}-${initialSpecialistIdFromUrl}`} // Більш стабільний ключ
+            initialServiceId={bookingDetails.service_id}
+            initialSpecialistId={bookingDetails.specialist_id}
+            fixedDateTime={bookingDetails.appointment_datetime}
+            onSuccess={handleStep0Success}
             isStepMode={true}
           />
         );
       case 1:
         return (
-          <Box component="form" onSubmit={handleStep2Submit}>
-            <Typography variant="h6" gutterBottom>Ваші контактні дані</Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Ім'я" fullWidth required value={bookingDetails.clientFirstName}
-                  onChange={(e) => setBookingDetails(p => ({ ...p, clientFirstName: e.target.value }))}
-                  disabled={isAuthenticated} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Прізвище" fullWidth value={bookingDetails.clientLastName}
-                  onChange={(e) => setBookingDetails(p => ({ ...p, clientLastName: e.target.value }))}
-                  disabled={isAuthenticated} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Email" type="email" fullWidth required value={bookingDetails.clientEmail}
-                  onChange={(e) => setBookingDetails(p => ({ ...p, clientEmail: e.target.value }))}
-                  disabled={isAuthenticated} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Телефон" fullWidth value={bookingDetails.clientPhone}
-                  onChange={(e) => setBookingDetails(p => ({ ...p, clientPhone: e.target.value }))}
-                  disabled={isAuthenticated} />
-              </Grid>
-            </Grid>
-            {!isAuthenticated && (
-              <Typography variant="caption" display="block" sx={{ mt: 2 }}>
-                Вже маєте акаунт? <MuiLink component={RouterLink} to="/login" state={{ from: location.pathname + location.search }}>Увійдіть</MuiLink> для швидшого запису.
-              </Typography>
+          <Box component="form" id="client-data-form" onSubmit={handleStep1Submit}>
+            <Typography variant="h6" gutterBottom sx={{mb:2}}>Крок 2: Ваші контактні дані</Typography>
+            {!isAuthenticated ? (
+              <>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}> <TextField name="first_name" label="Ім'я" fullWidth required value={bookingDetails.clientData.first_name} onChange={handleClientDataChange} /> </Grid>
+                  <Grid item xs={12} sm={6}> <TextField name="last_name" label="Прізвище" fullWidth value={bookingDetails.clientData.last_name} onChange={handleClientDataChange} /> </Grid>
+                  <Grid item xs={12} sm={6}> <TextField name="email" label="Email" type="email" fullWidth required value={bookingDetails.clientData.email} onChange={handleClientDataChange} /> </Grid>
+                  <Grid item xs={12} sm={6}> <TextField name="phone_number" label="Телефон" fullWidth value={bookingDetails.clientData.phone_number} onChange={handleClientDataChange} /> </Grid>
+                </Grid>
+                <Typography variant="caption" display="block" sx={{ mt: 2, textAlign:'center' }}>
+                  Вже маєте акаунт? <MuiLink component={RouterLink} to={`/login?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}>Увійдіть</MuiLink> для швидшого запису.
+                </Typography>
+              </>
+            ) : (
+              <Paper variant="outlined" sx={{p:2, textAlign:'center'}}>
+                <Typography>Ви увійшли як: <strong>{user.first_name} {user.last_name}</strong></Typography>
+                <Typography variant="body2" color="text.secondary">Email: {user.email}</Typography>
+                {user.phone_number && <Typography variant="body2" color="text.secondary">Телефон: {user.phone_number}</Typography>}
+                <Typography variant="caption" display="block" sx={{mt:1.5}}>
+                    Це не ви? <MuiLink component={RouterLink} to={`/logout?returnUrl=${encodeURIComponent(location.pathname + location.search)}`}>Вийти та вказати інші дані</MuiLink>.
+                </Typography>
+              </Paper>
             )}
-            <Box sx={{ mt: 3 }}>
-              <Button variant="contained" type="submit">Далі</Button>
-              <Button sx={{ ml: 2 }} onClick={handleBack}>Назад</Button>
-            </Box>
           </Box>
         );
       case 2:
+        if (loadingStepDetails) return <Box sx={{display:'flex', justifyContent:'center', p:3}}><CircularProgress/></Box>;
         return (
           <Box>
-            <Typography variant="h6" gutterBottom>Підтвердження запису</Typography>
-            <Paper variant="outlined" sx={{ p: 2 }}>
-              <Typography><strong>Послуга:</strong> {serviceDetailsCache?.name || bookingDetails.serviceId || 'Не обрано'}</Typography>
-              <Typography><strong>Спеціаліст:</strong> {specialistDetailsCache?.first_name || bookingDetails.specialistId || 'Будь-який'}</Typography>
-              <Typography><strong>Дата та час:</strong> {bookingDetails.appointmentDateTime ? format(bookingDetails.appointmentDateTime, 'dd MMMM yyyy, HH:mm', { locale: uk }) : 'Не обрано'}</Typography>
-              {bookingDetails.clientNotes && (
-                <Typography><strong>Примітки:</strong> {bookingDetails.clientNotes}</Typography>
-              )}
-              <Divider sx={{ my: 2 }} />
-              <Typography><strong>Ім'я клієнта:</strong> {bookingDetails.clientFirstName}</Typography>
-              <Typography><strong>Прізвище клієнта:</strong> {bookingDetails.clientLastName}</Typography>
-              <Typography><strong>Email:</strong> {bookingDetails.clientEmail}</Typography>
-              <Typography><strong>Телефон:</strong> {bookingDetails.clientPhone}</Typography>
+            <Typography variant="h6" gutterBottom sx={{mb:2}}>Крок 3: Підтвердження запису</Typography>
+            <Paper variant="outlined" sx={{p:2.5, '& p': {mb: 0.75}}}>
+                <Typography><strong>Послуга:</strong> {serviceDetailsCache?.name || `ID послуги: ${bookingDetails.service_id}` || 'Не обрано'}</Typography>
+                {bookingDetails.specialist_id && <Typography><strong>Спеціаліст:</strong> {specialistDetailsCache?.first_name || `ID спеціаліста: ${bookingDetails.specialist_id}` || 'Будь-який'}</Typography>}
+                <Typography><strong>Дата та час:</strong> {bookingDetails.appointment_datetime ? format(bookingDetails.appointment_datetime, 'dd MMMM yyyy, HH:mm', {locale:uk}) : 'Не обрано'}</Typography>
+                {bookingDetails.client_notes && <Typography><strong>Ваші нотатки:</strong> {bookingDetails.client_notes}</Typography>}
+                <Divider sx={{my:2}}/>
+                <Typography variant="subtitle1" sx={{fontWeight:'medium'}}><strong>Ваші дані для запису:</strong></Typography>
+                <Typography>{bookingDetails.clientData.first_name} {bookingDetails.clientData.last_name}</Typography>
+                <Typography>{bookingDetails.clientData.email}</Typography>
+                {bookingDetails.clientData.phone_number && <Typography>Телефон: {bookingDetails.clientData.phone_number}</Typography>}
             </Paper>
-            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
-              <Button onClick={handleBack} sx={{ mr: 2 }}>Назад</Button>
-              <Button variant="contained" color="primary" onClick={handleFinalSubmit} disabled={isSubmittingFinal}>
-                {isSubmittingFinal ? <CircularProgress size={24} /> : 'Підтвердити запис'}
-              </Button>
-            </Box>
           </Box>
         );
-      case 3:
-        return (
-          <Box textAlign="center" sx={{ py: 4 }}>
-            <Typography variant="h5" gutterBottom>Дякуємо за запис!</Typography>
-            <Typography>Ми зв'яжемося з вами найближчим часом для підтвердження.</Typography>
-            <Button sx={{ mt: 3 }} variant="contained" onClick={() => navigate('/')}>
-              На головну
-            </Button>
-          </Box>
-        );
-      default:
-        return null;
+      default: return 'Невідомий крок';
     }
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
+    <Container maxWidth="md" sx={{ py: {xs: 3, md: 5} }}>
       <PageTitle title="Запис на послугу" />
-      <Paper sx={{ p: 3 }}>
-        <Stepper activeStep={activeStep} alternativeLabel>
-          {steps.map((label, idx) => (
-            <Step key={label}>
-              <StepLabel StepIconComponent={StepIconComponent}>{label}</StepLabel>
-            </Step>
-          ))}
+      <Paper elevation={3} sx={{ p: {xs:2, sm:3, md:4}, mt: 3, borderRadius: 2 }}>
+        <Stepper activeStep={activeStep} sx={{ mb: {xs:3, md:4} }} alternativeLabel>
+          {steps.map((label) => ( <Step key={label}> <StepLabel StepIconComponent={StepIconComponent}>{label}</StepLabel> </Step> ))}
         </Stepper>
 
-        <Box sx={{ mt: 4 }}>
-          {getStepContent(activeStep)}
-        </Box>
+        {activeStep === steps.length ? (
+          <Box textAlign="center" py={5}>
+            <CheckCircleOutlineIcon color="success" sx={{fontSize: 70, mb:2}}/>
+            <Typography variant="h4" gutterBottom>Запис успішно оформлено!</Typography>
+            <Typography color="text.secondary">Ми надішлемо вам підтвердження найближчим часом, якщо це необхідно.</Typography>
+            <Box mt={4}>
+              <Button component={RouterLink} to="/client/my-bookings" variant="contained" sx={{ mr: 2 }}>Переглянути мої записи</Button>
+              <Button component={RouterLink} to="/services" variant="outlined">Обрати ще послугу</Button>
+            </Box>
+          </Box>
+        ) : (
+          <React.Fragment>
+            <Box sx={{minHeight: {xs:300, sm: 380}, mb:3}}> {/* Збільшив minHeight */}
+                {getStepContent(activeStep)}
+            </Box>
+            <Divider sx={{my:2}}/>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', pt: 2 }}>
+              <Button color="inherit" disabled={activeStep === 0 || isSubmittingFinal} onClick={handleBack}>
+                Назад
+              </Button>
+              
+              {activeStep === 0 && ( // Кнопка "Далі" для кроку 0
+                <Button variant="contained" type="submit" form="appointment-form-step0" /* Цей ID має бути на формі в AppointmentForm */ >
+                    Далі
+                </Button>
+              )}
+              {activeStep === 1 && ( // Кнопка "Далі" для кроку 1
+                <Button variant="contained" type="submit" form="client-data-form" /* ID форми для даних клієнта */>
+                    Далі
+                </Button>
+              )}
+              {activeStep === 2 && ( // Кнопка "Підтвердити" для кроку 2
+                <Button variant="contained" color="primary" onClick={handleFinalSubmit} disabled={isSubmittingFinal || !bookingDetails.service_id || !bookingDetails.appointment_datetime}>
+                  {isSubmittingFinal ? <CircularProgress size={24} color="inherit"/> : 'Підтвердити та записатися'}
+                </Button>
+              )}
+            </Box>
+          </React.Fragment>
+        )}
       </Paper>
     </Container>
   );

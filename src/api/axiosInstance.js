@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Отримуємо URL API з .env або використовуємо дефолтний
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://wellnes-center-server.onrender.com/api';
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
