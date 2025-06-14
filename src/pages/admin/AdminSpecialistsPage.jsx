@@ -169,10 +169,51 @@ const AdminSpecialistsPage = () => {
   };
 
   // ... (решта коду для handleOpenServicesDialog, handleCloseServicesDialog, handleServiceSelectionChange, handleAssignServicesSubmit залишається такою ж)
-  const handleOpenServicesDialog = async (specialist) => { /* ... */ };
-  const handleCloseServicesDialog = () => { /* ... */ };
-  const handleServiceSelectionChange = (serviceId) => { /* ... */ };
-  const handleAssignServicesSubmit = async () => { /* ... */ };
+  const handleOpenServicesDialog = async (specialist) => {
+    setCurrentSpecialistForServices(specialist);
+    setOpenServicesDialog(true);
+    setLoadingDialog(true);
+    try {
+      // Отримати поточні послуги спеціаліста
+      const specialistServices = await apiGetSpecialistServices(specialist.id);
+      setSelectedServiceIds(specialistServices.map(s => s.id));
+    } catch (err) {
+      const errMsg = err.message || 'Не вдалося завантажити послуги спеціаліста.';
+      showNotification(errMsg, 'error');
+      setSelectedServiceIds([]);
+    }
+    setLoadingDialog(false);
+  };
+  const handleCloseServicesDialog = () => {
+    setOpenServicesDialog(false);
+    setCurrentSpecialistForServices(null);
+    setSelectedServiceIds([]);
+    setLoadingDialog(false);
+  };
+
+  const handleServiceSelectionChange = (serviceId) => {
+    setSelectedServiceIds(prev =>
+      prev.includes(serviceId)
+        ? prev.filter(id => id !== serviceId)
+        : [...prev, serviceId]
+    );
+  };
+
+  const handleAssignServicesSubmit = async () => {
+    if (!currentSpecialistForServices) return;
+    setLoadingDialog(true);
+    try {
+      await assignServicesToSpecialist(currentSpecialistForServices.id, { service_ids: selectedServiceIds });
+      showNotification('Послуги успішно призначено спеціалісту!', 'success');
+      handleCloseServicesDialog();
+      fetchSpecialistsAndServices();
+    } catch (err) {
+      const errMsg = err.message || 'Не вдалося призначити послуги.';
+      showNotification(errMsg, 'error');
+    } finally {
+      setLoadingDialog(false);
+    }
+  };
 
 
   const columns = [ /* ... (колонки залишаються такими ж) ... */
