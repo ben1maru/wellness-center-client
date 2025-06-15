@@ -12,7 +12,7 @@ import { NotificationContext } from '../../contexts/NotificationContext.jsx';
 // getServiceById, getSpecialistById - для відображення назв на кроці підтвердження
 import { createAppointment, getServiceById, getSpecialistById } from '../../api/dataApi.js';
 import { format, parseISO, isValid as isValidDate, formatISO } from 'date-fns';
-import { uk } from 'date-fns/locale';
+// import { uk } from 'date-fns/locale'; // uk locale no longer needed for the specific format change
 
 import EventSeatIcon from '@mui/icons-material/EventSeat';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
@@ -71,7 +71,7 @@ const BookingPage = () => {
             setSpecialistDetailsCache(specialist);
           }
         } catch (e) {
-          console.error("Error fetching details for confirmation step:", e);
+          console.error("Помилка завантаження деталей для кроку підтвердження:", e);
           showNotification("Помилка завантаження деталей для підтвердження.", "error");
         } finally {
           setLoadingStepDetails(false);
@@ -79,7 +79,7 @@ const BookingPage = () => {
       }
     };
     fetchDetailsForStep2();
-  }, [activeStep, bookingDetails.service_id, bookingDetails.specialist_id]); // Залежності
+  }, [activeStep, bookingDetails.service_id, bookingDetails.specialist_id, showNotification]);
 
   // Коли користувач логіниться/виходить, оновлюємо дані клієнта у формі
   useEffect(() => {
@@ -94,14 +94,17 @@ const BookingPage = () => {
         }
       }));
     } else {
-        // Можна скинути, якщо потрібно, щоб незалогінений користувач вводив заново
-        // setBookingDetails(prev => ({ ...prev, clientData: { first_name: '', ...} }));
+        // Якщо потрібно скидати дані для незалогіненого користувача, можна зробити так:
+        // setBookingDetails(prev => ({
+        //   ...prev,
+        //   clientData: { first_name: '', last_name: '', email: '', phone_number: '' }
+        // }));
     }
   }, [isAuthenticated, user]);
 
 
   const handleStep0Success = (formDataFromStep0) => {
-    console.log("BookingPage: Data from Step 0 (AppointmentForm):", formDataFromStep0);
+    console.log("BookingPage: Дані з Кроку 0 (AppointmentForm):", formDataFromStep0);
     setBookingDetails(prev => ({
       ...prev,
       service_id: String(formDataFromStep0.service_id),
@@ -124,12 +127,11 @@ const BookingPage = () => {
 
   const handleStep1Submit = (event) => {
     event.preventDefault();
-    const { clientFirstName, clientEmail } = bookingDetails.clientData; // Використовуємо clientFirstName замість clientData.first_name
-    if (!isAuthenticated && (!clientFirstName?.trim() || !clientEmail?.trim())) { // clientData.first_name -> clientFirstName
+    if (!isAuthenticated && (!bookingDetails.clientData.first_name?.trim() || !bookingDetails.clientData.email?.trim())) {
         showNotification("Будь ласка, вкажіть ваше ім'я та email.", "error");
         return;
     }
-     if (!isAuthenticated && clientEmail?.trim() && !/\S+@\S+\.\S+/.test(clientEmail)) { // clientData.email -> clientEmail
+     if (!isAuthenticated && bookingDetails.clientData.email?.trim() && !/\S+@\S+\.\S+/.test(bookingDetails.clientData.email)) {
         showNotification("Некоректний формат email.", "error");
         return;
     }
@@ -137,7 +139,6 @@ const BookingPage = () => {
   };
 
   const handleFinalSubmit = async () => {
-    console.log("BookingPage: handleFinalSubmit called. Details:", bookingDetails);
     if (!bookingDetails.service_id || !bookingDetails.appointment_datetime) {
         showNotification("Не всі необхідні дані для запису заповнені.", "error");
         return;
@@ -147,23 +148,22 @@ const BookingPage = () => {
         const dataToSend = {
             service_id: Number(bookingDetails.service_id),
             specialist_id: bookingDetails.specialist_id ? Number(bookingDetails.specialist_id) : null,
+            // bookingDetails.appointment_datetime - це об'єкт Date
+            // formatISO перетворює його на рядок типу '2023-10-26T10:30:00.000Z' (UTC)
             appointment_datetime: formatISO(bookingDetails.appointment_datetime),
             client_notes: bookingDetails.client_notes,
         };
-        // Якщо користувач не залогінений, і API очікує ці дані, їх треба додати.
-        // Але зазвичай, якщо користувач не залогінений, йому пропонують увійти/зареєструватися
-        // перед тим, як дозволити створити запис. Або createAppointment не вимагає user_id.
-        // Наш createAppointment на бекенді бере user_id з req.user.id.
-        // Тому, якщо користувач не залогінений, він НЕ ПОВИНЕН дійти до цього кроку без логіну.
-        // Якщо ж це можливо (запис гостя), то API createAppointment має це обробляти.
-        console.log("BookingPage: Data being sent to createAppointment:", dataToSend);
+
+        // Логуємо дані, що відправляються на сервер
+        console.log("BookingPage: Дані, що відправляються на createAppointment:", dataToSend);
+        // Особливо зверніть увагу на dataToSend.appointment_datetime
 
         const response = await createAppointment(dataToSend);
         showNotification(response.message || 'Запис успішно створено!', 'success');
         setActiveStep(steps.length);
     } catch (error) {
-        console.error("BookingPage: Error on final submit:", error, error.message);
-        showNotification(error.message || 'Не вдалося створити запис. Спробуйте ще раз.', 'error');
+        console.error("BookingPage: Помилка при фінальному відправленні:", error, error.response?.data?.message || error.message);
+        showNotification(error.response?.data?.message || error.message || 'Не вдалося створити запис. Спробуйте ще раз.', 'error');
     } finally {
         setIsSubmittingFinal(false);
     }
@@ -176,7 +176,7 @@ const BookingPage = () => {
       case 0:
         return (
           <AppointmentForm
-            key={`booking-step0-${initialServiceIdFromUrl}-${initialSpecialistIdFromUrl}`} // Більш стабільний ключ
+            key={`booking-step0-${initialServiceIdFromUrl}-${initialSpecialistIdFromUrl}-${bookingDetails.appointment_datetime ? bookingDetails.appointment_datetime.toISOString() : 'no-date'}`} // Додав ключ для ре-рендеру при зміні дати
             initialServiceId={bookingDetails.service_id}
             initialSpecialistId={bookingDetails.specialist_id}
             fixedDateTime={bookingDetails.appointment_datetime}
@@ -219,8 +219,8 @@ const BookingPage = () => {
             <Typography variant="h6" gutterBottom sx={{mb:2}}>Крок 3: Підтвердження запису</Typography>
             <Paper variant="outlined" sx={{p:2.5, '& p': {mb: 0.75}}}>
                 <Typography><strong>Послуга:</strong> {serviceDetailsCache?.name || `ID послуги: ${bookingDetails.service_id}` || 'Не обрано'}</Typography>
-                {bookingDetails.specialist_id && <Typography><strong>Спеціаліст:</strong> {specialistDetailsCache?.first_name || `ID спеціаліста: ${bookingDetails.specialist_id}` || 'Будь-який'}</Typography>}
-                <Typography><strong>Дата та час:</strong> {bookingDetails.appointment_datetime ? format(bookingDetails.appointment_datetime, 'dd MMMM yyyy, HH:mm', {locale:uk}) : 'Не обрано'}</Typography>
+                {bookingDetails.specialist_id && <Typography><strong>Спеціаліст:</strong> {specialistDetailsCache?.first_name ? `${specialistDetailsCache.first_name} ${specialistDetailsCache.last_name || ''}` : `ID спеціаліста: ${bookingDetails.specialist_id}` || 'Будь-який'}</Typography>}
+                <Typography><strong>Дата та час:</strong> {bookingDetails.appointment_datetime ? format(bookingDetails.appointment_datetime, 'yyyy-MM-dd HH:mm:ss') : 'Не обрано'}</Typography>
                 {bookingDetails.client_notes && <Typography><strong>Ваші нотатки:</strong> {bookingDetails.client_notes}</Typography>}
                 <Divider sx={{my:2}}/>
                 <Typography variant="subtitle1" sx={{fontWeight:'medium'}}><strong>Ваші дані для запису:</strong></Typography>
@@ -254,7 +254,7 @@ const BookingPage = () => {
           </Box>
         ) : (
           <React.Fragment>
-            <Box sx={{minHeight: {xs:300, sm: 380}, mb:3}}> {/* Збільшив minHeight */}
+            <Box sx={{minHeight: {xs:300, sm: 380}, mb:3}}>
                 {getStepContent(activeStep)}
             </Box>
             <Divider sx={{my:2}}/>
@@ -263,18 +263,18 @@ const BookingPage = () => {
                 Назад
               </Button>
               
-              {activeStep === 0 && ( // Кнопка "Далі" для кроку 0
-                <Button variant="contained" type="submit" form="appointment-form-step0" /* Цей ID має бути на формі в AppointmentForm */ >
+              {activeStep === 0 && (
+                <Button variant="contained" type="submit" form="appointment-form-step0" >
                     Далі
                 </Button>
               )}
-              {activeStep === 1 && ( // Кнопка "Далі" для кроку 1
-                <Button variant="contained" type="submit" form="client-data-form" /* ID форми для даних клієнта */>
+              {activeStep === 1 && (
+                <Button variant="contained" type="submit" form="client-data-form" >
                     Далі
                 </Button>
               )}
-              {activeStep === 2 && ( // Кнопка "Підтвердити" для кроку 2
-                <Button variant="contained" color="primary" onClick={handleFinalSubmit} disabled={isSubmittingFinal || !bookingDetails.service_id || !bookingDetails.appointment_datetime}>
+              {activeStep === 2 && (
+                <Button variant="contained" color="primary" onClick={handleFinalSubmit} disabled={isSubmittingFinal || !bookingDetails.service_id || !bookingDetails.appointment_datetime || loadingStepDetails}>
                   {isSubmittingFinal ? <CircularProgress size={24} color="inherit"/> : 'Підтвердити та записатися'}
                 </Button>
               )}
